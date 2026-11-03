@@ -1,14 +1,20 @@
 name: Build APK
 
-# Builds the Android app on GitHub's servers (Android SDK preinstalled).
-# Use this if the local Flutter/Android toolchain can't be downloaded.
-# Push the project to a GitHub repo, open the Actions tab, download the
-# "naqashi-apk" artifact when the run finishes. "Run workflow" builds on demand.
+# Every push: test the server, analyse and test the app (including the
+# client-vs-server protocol test), build the APKs, and publish them with the
+# single-file server to the "android-latest" release, so the newest build is
+# one tap away on a phone: https://github.com/<owner>/<repo>/releases/tag/android-latest
 
 on:
   push:
-    branches: [ main, master ]
   workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   build:
@@ -16,41 +22,83 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: server/package-lock.json
+
+      - name: Server tests
+        working-directory: server
+        run: |
+          npm ci
+          npm test
+          npm run bundle
+
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
-          java-version: '17'
+          java-version: '21'
 
       - uses: subosito/flutter-action@v2
         with:
-          flutter-version: '3.24.0'
+          flutter-version: '3.47.9'
           channel: stable
-
-      # The repo carries lib/, pubspec.yaml and a hand-written manifest, but not
-      # the generated android/ scaffolding. Regenerate it, keep our manifest.
-      - name: Generate Android scaffolding
-        run: |
-          cp android/app/src/main/AndroidManifest.xml /tmp/OurManifest.xml
-          flutter create --project-name naqashi --org ir.naqashi --platforms=android .
-          cp /tmp/OurManifest.xml android/app/src/main/AndroidManifest.xml
-          git diff --stat -- lib pubspec.yaml || true
+          cache: true
 
       - run: flutter pub get
-      - run: flutter analyze --no-fatal-infos --no-fatal-warnings || true
-      - run: flutter build apk --release --split-per-abi
-      - run: flutter build apk --release
+      - run: flutter analyze
+      - name: App tests (widget + protocol against the real server)
+        run: flutter test
+
+      - name: Signing key
+        env:
+          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+        run: |
+          if [ -n "$KEYSTORE_BASE64" ] && [ -n "$KEYSTORE_PASSWORD" ]; then
+            echo "$KEYSTORE_BASE64" | base64 -d > android/app/release.keystore
+            PW="$KEYSTORE_PASSWORD"; ALIAS="${KEY_ALIAS:-naqashi}"
+            echo "SIGNED_WITH=your key (repository secret)" >> "$GITHUB_ENV"
+          else
+            # No key configured: a throwaway key, so the APK still installs for testing.
+            PW=$(openssl rand -hex 16); ALIAS=naqashi
+            echo "::add-mask::$PW"
+            keytool -genkeypair -keystore android/app/release.keystore -alias "$ALIAS" -keyalg RSA \
+              -keysize 2048 -validity 10000 -storepass "$PW" -keypass "$PW" -dname "CN=Naqashi test build" >/dev/null
+            echo "SIGNED_WITH=a temporary test key: uninstall the previous build before installing this one. NOT for Cafe Bazaar." >> "$GITHUB_ENV"
+          fi
+          printf 'storeFile=release.keystore\nstorePassword=%s\nkeyAlias=%s\nkeyPassword=%s\n' "$PW" "$ALIAS" "$PW" > android/key.properties
+
+      - name: Build APKs
+        run: |
+          mkdir -p dist
+          flutter build apk --release --split-per-abi --build-number=${{ github.run_number }}
+          cp build/app/outputs/flutter-apk/app-arm64-v8a-release.apk dist/Naqashi-arm64.apk
+          cp build/app/outputs/flutter-apk/app-armeabi-v7a-release.apk dist/Naqashi-arm32.apk
+          flutter build apk --release --build-number=${{ github.run_number }}
+          cp build/app/outputs/flutter-apk/app-release.apk dist/Naqashi-universal.apk
+          cp server/dist/naqashi-server.js dist/naqashi-server.js
+          ls -la dist
 
       - uses: actions/upload-artifact@v4
         with:
-          name: naqashi-apk
-          path: build/app/outputs/flutter-apk/*.apk
-          if-no-files-found: error
+          name: naqashi-${{ github.run_number }}
+          path: dist/*
 
-      - if: failure()
-        uses: actions/upload-artifact@v4
-        with:
-          name: build-logs
-          path: |
-            build/
-            !build/app/outputs/flutter-apk/
-          if-no-files-found: ignore
+      - name: Publish "android-latest" release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release delete android-latest --yes --cleanup-tag || true
+          gh release create android-latest dist/* \
+            --target "$GITHUB_SHA" \
+            --title "نقاشی بکش – latest build (${GITHUB_REF_NAME}, #${{ github.run_number }})" \
+            --notes "**Install on a phone:** open this page on the phone and tap **Naqashi-arm64.apk** (most phones). If it says the app isn't compatible, use **Naqashi-arm32.apk** (older phones) or **Naqashi-universal.apk** (any phone, bigger download). Allow installing from this source when Android asks.
+
+          **Game server for wifi playtests:** download **naqashi-server.js** on the computer, then run \`node naqashi-server.js\` (needs Node.js 18+). It prints the address to type into «آدرس سرور» on each phone.
+
+          Signed with: ${SIGNED_WITH}
+
+          Built from commit ${GITHUB_SHA::7}, Flutter 3.47.9."
