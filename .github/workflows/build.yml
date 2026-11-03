@@ -1,0 +1,56 @@
+name: Build APK
+
+# Builds the Android app on GitHub's servers (Android SDK preinstalled).
+# Use this if the local Flutter/Android toolchain can't be downloaded.
+# Push the project to a GitHub repo, open the Actions tab, download the
+# "naqashi-apk" artifact when the run finishes. "Run workflow" builds on demand.
+
+on:
+  push:
+    branches: [ main, master ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.24.0'
+          channel: stable
+
+      # The repo carries lib/, pubspec.yaml and a hand-written manifest, but not
+      # the generated android/ scaffolding. Regenerate it, keep our manifest.
+      - name: Generate Android scaffolding
+        run: |
+          cp android/app/src/main/AndroidManifest.xml /tmp/OurManifest.xml
+          flutter create --project-name naqashi --org ir.naqashi --platforms=android .
+          cp /tmp/OurManifest.xml android/app/src/main/AndroidManifest.xml
+          git diff --stat -- lib pubspec.yaml || true
+
+      - run: flutter pub get
+      - run: flutter analyze --no-fatal-infos --no-fatal-warnings || true
+      - run: flutter build apk --release --split-per-abi
+      - run: flutter build apk --release
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: naqashi-apk
+          path: build/app/outputs/flutter-apk/*.apk
+          if-no-files-found: error
+
+      - if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-logs
+          path: |
+            build/
+            !build/app/outputs/flutter-apk/
+          if-no-files-found: ignore

@@ -1,0 +1,31 @@
+# Flutter / Dart
+.dart_tool/
+.flutter-plugins
+.flutter-plugins-dependencies
+.packages
+.pub-cache/
+.pub/
+build/
+pubspec_overrides.yaml
+*.iml
+.idea/
+.vscode/
+.metadata
+
+# Android
+android/.gradle/
+android/local.properties
+android/key.properties
+android/app/release.keystore
+android/**/GeneratedPluginRegistrant.java
+android/.kotlin/
+*.jks
+!android/app/playtest.jks
+
+# Node server
+server/node_modules/
+server/dist/
+
+# OS
+.DS_Store
+Thumbs.db
