@@ -5,6 +5,9 @@ import 'dart:ui';
 import 'package:flutter/foundation.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
 
+import '../config.dart';
+import '../theme.dart' show fa;
+
 /* ----------------------------- models ----------------------------- */
 
 class Player {
@@ -140,6 +143,9 @@ class GameClient extends ChangeNotifier {
   Timer? _tick;
 
   bool get connected => _ch != null;
+
+  /// Show voice controls: the room allows voice and voice actually exists.
+  bool get voiceOn => kVoiceBuilt && voiceAllowed;
 
   /// This device solved the current word (it is not the drawer).
   bool get iSolved => !iAmDrawer && (me?.solved ?? false);
@@ -296,7 +302,7 @@ class GameClient extends ChangeNotifier {
 
       case 'solved':
         chat.add(ChatLine((m['name'] ?? '') as String,
-            'جوابو زد! +${m['points']}',
+            'جوابو زد! ${fa(m['points'] ?? 0)} امتیاز',
             kind: ChatKind.hit));
         for (final p in players) {
           if (p.id == m['from']) p.solved = true;

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../config.dart';
 import '../net/game_client.dart';
 import '../theme.dart';
 import 'game_screen.dart';
@@ -186,7 +187,8 @@ class LobbyView extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final voice = client.voiceAllowed;
+    final voice = client.voiceOn;
+    final private = client.roomCode != null;
     return SingleChildScrollView(
       padding: const EdgeInsets.all(22),
       child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
@@ -204,7 +206,9 @@ class LobbyView extends StatelessWidget {
               child: Text(
                 voice
                     ? 'گفتگوی صوتی روشنه چون این اتاق خصوصیه.${client.isHost ? ' به‌عنوان میزبان می‌تونی هرکسی رو بی‌صدا یا اخراج کنی.' : ''}'
-                    : 'بازی عمومیه، پس فقط چت متنیه. برای حرف زدن با صدا یه اتاق خصوصی بساز.',
+                    : private
+                        ? 'اتاق خصوصیه: فقط کسایی که کد رو دارن میان تو.${client.isHost ? ' به‌عنوان میزبان می‌تونی هرکسی رو اخراج کنی.' : ''}'
+                        : 'بازی عمومیه و فقط چت متنی داره.',
                 style: const TextStyle(color: C.txtDim, fontSize: 13, height: 1.7),
               ),
             ),
@@ -255,7 +259,7 @@ class LobbyView extends StatelessWidget {
                     child: Text(p.team == 0 ? 'آبی' : 'قرمز',
                         style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w800)),
                   ),
-                if (p.hostMuted) const Padding(
+                if (kVoiceBuilt && p.hostMuted) const Padding(
                   padding: EdgeInsets.only(right: 6),
                   child: Text('🔇', style: TextStyle(fontSize: 14)),
                 ),
@@ -323,7 +327,7 @@ void _hostSheet(BuildContext context, GameClient client, Player p) {
           child: Column(mainAxisSize: MainAxisSize.min, children: [
             Text(p.name, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w800)),
             const SizedBox(height: 14),
-            _SheetAction(
+            if (kVoiceBuilt) _SheetAction(
               icon: p.hostMuted ? '🔊' : '🚫',
               label: p.hostMuted ? 'اجازه حرف زدن بده' : 'برای همه بی‌صدا کن',
               note: 'میزبان: کسی صداش رو نمی‌شنوه',
@@ -335,7 +339,7 @@ void _hostSheet(BuildContext context, GameClient client, Player p) {
             _SheetAction(
               icon: '👋',
               label: 'اخراج از اتاق',
-              note: 'دیگه نمی‌تونه با این کد برگرده',
+              note: 'از اتاق بیرونش می‌کنه',
               danger: true,
               onTap: () {
                 client.hostKick(p.id);

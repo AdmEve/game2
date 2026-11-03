@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../config.dart';
 import '../net/game_client.dart';
 import '../theme.dart';
 import 'home_screen.dart';
@@ -206,7 +207,7 @@ class _GameScreenState extends State<GameScreen> {
           ]),
         ),
       ),
-      if (c.voiceAllowed)
+      if (c.voiceOn)
         Padding(
           padding: const EdgeInsets.only(bottom: 8),
           child: PushToTalk(
@@ -315,7 +316,7 @@ class _GameScreenState extends State<GameScreen> {
         ),
       ),
       SizedBox(height: 120, child: ChatFeed(lines: c.chat)),
-      if (!c.voiceAllowed)
+      if (kVoiceBuilt && !c.voiceAllowed)
         const Padding(
           padding: EdgeInsets.symmetric(horizontal: 14, vertical: 6),
           child: Text('بازی عمومی — گفتگوی صوتی خاموشه.',
