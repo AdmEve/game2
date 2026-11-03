@@ -19,8 +19,6 @@ android/key.properties
 android/app/release.keystore
 android/**/GeneratedPluginRegistrant.java
 android/.kotlin/
-*.jks
-!android/app/playtest.jks
 
 # Node server
 server/node_modules/

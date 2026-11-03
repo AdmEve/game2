@@ -34,8 +34,12 @@ String normalizeFa(String input) {
 
 int levenshtein(String a, String b) {
   final m = List.generate(b.length + 1, (i) => List<int>.filled(a.length + 1, 0));
-  for (var i = 0; i <= b.length; i++) m[i][0] = i;
-  for (var j = 0; j <= a.length; j++) m[0][j] = j;
+  for (var i = 0; i <= b.length; i++) {
+    m[i][0] = i;
+  }
+  for (var j = 0; j <= a.length; j++) {
+    m[0][j] = j;
+  }
   for (var i = 1; i <= b.length; i++) {
     for (var j = 1; j <= a.length; j++) {
       m[i][j] = b[i - 1] == a[j - 1]
