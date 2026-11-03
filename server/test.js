@@ -152,13 +152,65 @@ function client(name, opts = {}) {
   [...S].forEach(c => c.ws.close()); await sleep(80);
   const P1 = client('یک'); await P1.ready; await sleep(60);
   const P2 = client('دو', { code: P1.code }); await P2.ready; await sleep(100);
-  rooms.get(P1.code).resultPause = 300;
+  rooms.get(P1.code).resultPause = 600;
   P1.send({ t: 'start' }); await sleep(120);
   ok(!!P1.choices, 'turn 1: first player is the drawer');
   P1.send({ t: 'pick', i: 0 }); await sleep(120);
-  P2.send({ t: 'guess', text: P1.word }); await sleep(1700);
+  P2.send({ t: 'guess', text: P1.word }); await sleep(1150);
+  ok(P2.room.phase === 'results' && P2.room.turn === 1,
+    `results still report the turn just played (got ${P2.room.phase} ${P2.room.turn})`);
+  await sleep(900);
   ok(P2.got('choices').length === 1, 'turn 2 starts on its own: the other player is offered words');
   ok(P2.room.turn === 2, 'turn counter advanced to 2 (got ' + P2.room.turn + ')');
+
+  console.log('\n=== LEAVING MID-GAME ===');
+  [P1, P2].forEach(c => c.ws.close()); await sleep(80);
+  const L1 = client('اول'); await L1.ready; await sleep(60);
+  const L2 = client('دوم', { code: L1.code }); await L2.ready;
+  const L3 = client('سوم', { code: L1.code }); await L3.ready; await sleep(100);
+  rooms.get(L1.code).resultPause = 300;
+  L1.send({ t: 'start' }); await sleep(120);
+  L1.send({ t: 'pick', i: 0 }); await sleep(120);
+  ok(L2.room.turns === 6, 'three players, two rounds: six turns');
+  L1.ws.close(); await sleep(150);                 // the drawer walks out mid-turn
+  ok(L2.got('results').length === 1, 'drawer leaving ends their turn at once');
+  ok(L2.last('results').gains[L1.id] === undefined, 'a drawer who left earns nothing');
+  ok(L2.room.turns === 5, `the leaver's future turn is dropped (got ${L2.room.turns} turns)`);
+  ok(L2.room.hostId === L2.id, 'host passes to the next player');
+  await sleep(500);
+  const nd = [L2, L3].find(c => c.got('choices').length);
+  ok(!!nd, 'the game carries on with the next drawer');
+  nd.send({ t: 'pick', i: 0 }); await sleep(120);
+  const other = nd === L2 ? L3 : L2;
+  other.ws.close(); await sleep(150);              // only one player left
+  ok(nd.last('over') !== undefined, 'a game left with one player ends');
+
+  console.log('\n=== GUESSER LEAVES ===');
+  nd.ws.close(); await sleep(80);
+  const G1 = client('نقاش'); await G1.ready; await sleep(60);
+  const G2 = client('حل‌کن', { code: G1.code }); await G2.ready;
+  const G3 = client('رفتنی', { code: G1.code }); await G3.ready; await sleep(100);
+  G1.send({ t: 'start' }); await sleep(120);
+  G1.send({ t: 'pick', i: 0 }); await sleep(120);
+  G2.send({ t: 'guess', text: G1.word }); await sleep(150);
+  ok(G2.got('results').length === 0, 'turn waits for the remaining guesser');
+  G3.ws.close(); await sleep(150);
+  ok(G2.got('results').length === 1, 'when the last unsolved guesser leaves, the turn ends');
+  ok(G2.last('results').gains[G1.id] === 150, `drawer is paid on who is still here (got ${G2.last('results').gains[G1.id]})`);
+
+  console.log('\n=== PUBLIC ROOMS ===');
+  [G1, G2].forEach(c => c.ws.close()); await sleep(80);
+  const U1 = client('عمومی', { type: 'public' }); await U1.ready; await sleep(100);
+  U1.send({ t: 'mode', mode: 'team' }); await sleep(80);
+  ok(U1.room.mode === 'ffa', 'public rooms stay free-for-all');
+
+  console.log('\n=== PAYLOAD CAP ===');
+  let closed = false; U1.ws.on('close', () => { closed = true });
+  U1.send({ t: 'guess', text: 'x'.repeat(300 * 1024) }); await sleep(200);
+  ok(closed, 'an oversized message closes the connection');
+  const after = client('بعدی'); await after.ready; await sleep(80);
+  ok(!!after.id, 'and the server is still up for everyone else');
+  after.ws.close();
 
   console.log(`\n${pass} passed, ${fail} failed\n`);
   process.exit(fail ? 1 : 0);

@@ -4,6 +4,9 @@ const { WebSocketServer } = require('ws');
 const G = require('./game');
 
 const PORT = process.env.PORT || 8080;
+// Test/dev overrides only. Unset in real play, so the rules' defaults apply.
+const TURN_SECONDS = Number(process.env.TURN_SECONDS) || null;
+const RESULT_PAUSE_MS = Number(process.env.RESULT_PAUSE_MS) || null;
 const rooms = new Map();
 let nextId = 1;
 
@@ -19,8 +22,10 @@ function makeRoom(type, opts = {}) {
     hostId: null,
     phase: 'lobby',           // lobby | choosing | drawing | stealing | results | over
     rounds: opts.rounds || 2,
-    turnLen: opts.turnLen || null,   // null = derive from mode
+    turnLen: opts.turnLen || TURN_SECONDS,   // null = derive from mode
+    resultPause: RESULT_PAUSE_MS,            // null = 5 s
     order: [], turnIdx: 0,
+    turnNo: 0,                // 1-based number of the turn being played or just finished
     word: null,               // NEVER broadcast
     mask: null,
     strokes: [],
@@ -44,6 +49,8 @@ const guessersOf = r => {
     ? r.players.filter(p => p !== d && p.team === d.team)
     : r.players.filter(p => p !== d);
 };
+/** Guessers still in the room who solved this turn (a departed solver no longer counts). */
+const solvedCount = r => guessersOf(r).filter(q => r.guessed.has(q)).length;
 const opponentsOf = r => r.players.filter(p => p.team !== drawer(r).team);
 
 /** Can this player submit a guess right now? */
@@ -76,7 +83,7 @@ function roomState(r) {
     mode: r.mode, phase: r.phase, hostId: r.hostId,
     players: r.players.map(publicPlayer),
     teamScore: r.teamScore,
-    turn: r.turnIdx + 1, turns: r.order.length,
+    turn: r.turnNo, turns: r.order.length,
   };
 }
 const pushState = r => broadcast(r, roomState(r));
@@ -95,6 +102,7 @@ function nextTurn(r) {
   clearTimers(r);
   if (r.turnIdx >= r.order.length) return endGame(r);
   const d = drawer(r);
+  r.turnNo = r.turnIdx + 1;
   r.phase = 'choosing';
   r.word = null; r.mask = null; r.strokes = [];
   r.guessed = new Set(); r.scoreGain = {};
@@ -192,7 +200,7 @@ function finishTurn(r, skipped) {
   clearTimers(r);
   const d = drawer(r);
   if (!skipped && r.mode === 'ffa') {
-    const dp = G.drawerPoints(r.guessed.size, guessersOf(r).length);
+    const dp = G.drawerPoints(solvedCount(r), guessersOf(r).length);
     d.score += dp;
     if (dp) r.scoreGain[d.id] = (r.scoreGain[d.id] || 0) + dp;
   }
@@ -211,6 +219,8 @@ function finishTurn(r, skipped) {
 }
 
 function endGame(r) {
+  if (r.phase === 'over') return;
+  clearTimers(r);
   r.phase = 'over';
   let winner = null;
   if (r.mode === 'team') {
@@ -238,6 +248,7 @@ function onMessage(p, raw) {
   switch (m.t) {
     case 'mode': {
       if (p.id !== r.hostId || r.phase !== 'lobby') return;
+      if (r.type === 'public') return;                 // teams need a stable group
       r.mode = m.mode === 'team' ? 'team' : 'ffa';
       r.players.forEach((pl, i) => { pl.team = i % 2 });
       return pushState(r);
@@ -285,7 +296,7 @@ function onMessage(p, raw) {
         const pts = award(r, p);
         broadcast(r, { t: 'solved', from: p.id, name: p.name, points: pts });
         send(p, { t: 'youSolved', points: pts, word: r.word });
-        const done = r.mode === 'team' || r.guessed.size >= guessersOf(r).length;
+        const done = r.mode === 'team' || solvedCount(r) >= guessersOf(r).length;
         if (done) later(r, 900, () => finishTurn(r));
         return;
       }
@@ -304,16 +315,49 @@ function onMessage(p, raw) {
       if (p.id !== r.hostId || r.type !== 'private') return;
       const q = r.players.find(x => x.id === m.id); if (!q || q === p) return;
       send(q, { t: 'kicked' });
-      r.players = r.players.filter(x => x !== q);
+      removePlayer(r, q);
       if (q.ws) q.ws.close();
-      return pushState(r);
+      return;
     }
   }
 }
 
+/* ---------- leaving ---------- */
+/**
+ * Takes a player out of a room at any phase. Their future turns are dropped,
+ * a turn they were drawing ends, and a game left with one player ends.
+ */
+function removePlayer(r, p) {
+  if (!r.players.includes(p)) return;
+  const playing = ['choosing', 'drawing', 'stealing', 'results'].includes(r.phase);
+  const wasDrawing = playing && r.phase !== 'results' && drawer(r) === p;
+
+  r.players = r.players.filter(x => x !== p);
+  if (r.hostId === p.id) r.hostId = r.players[0] ? r.players[0].id : null;
+  if (!r.players.length) { clearTimers(r); rooms.delete(r.code); return; }
+
+  if (!playing) {
+    if (r.phase === 'lobby' && r.mode === 'team') r.players.forEach((pl, i) => { pl.team = i % 2 });
+    return pushState(r);
+  }
+
+  // Drop their turns that have not started. During results, turnIdx already
+  // points at the next turn; otherwise it is the turn in progress.
+  const firstFuture = r.phase === 'results' ? r.turnIdx : r.turnIdx + 1;
+  r.order = r.order.slice(0, firstFuture).concat(r.order.slice(firstFuture).filter(x => x !== p));
+
+  if (r.players.length < 2) { clearTimers(r); return endGame(r); }
+  if (wasDrawing) return finishTurn(r, true);
+  if (r.phase === 'drawing' && r.mode === 'ffa' && guessersOf(r).length && solvedCount(r) >= guessersOf(r).length) {
+    return finishTurn(r);                          // the only one still guessing left
+  }
+  pushState(r);
+}
+
 /* ---------- wiring ---------- */
 const server = http.createServer();
-const wss = new WebSocketServer({ server });
+// A long stroke is ~25 KB; anything far bigger is abuse, and ws drops the connection.
+const wss = new WebSocketServer({ server, maxPayload: 256 * 1024 });
 
 wss.on('connection', (ws, req) => {
   const url = new URL(req.url, 'http://x');
@@ -341,15 +385,32 @@ wss.on('connection', (ws, req) => {
   pushState(room);
 
   ws.on('message', raw => onMessage(p, raw));
-  ws.on('close', () => {
-    room.players = room.players.filter(x => x !== p);
-    if (room.hostId === p.id && room.players[0]) room.hostId = room.players[0].id;
-    if (!room.players.length) { clearTimers(room); rooms.delete(room.code) }
-    else pushState(room);
-  });
+  // Without this, one bad socket (oversized frame, reset) crashes every room.
+  // 'close' always follows an error, and that does the cleanup.
+  ws.on('error', () => {});
+  ws.on('close', () => removePlayer(room, p));
 });
 
-if (require.main === module) {
-  server.listen(PORT, () => console.log('naqashi server on :' + PORT));
+/** LAN addresses phones on the same wifi can use, e.g. ['192.168.1.23']. */
+function lanAddresses() {
+  const out = [];
+  for (const list of Object.values(require('os').networkInterfaces())) {
+    for (const a of list || []) if (a.family === 'IPv4' && !a.internal) out.push(a.address);
+  }
+  return out;
 }
-module.exports = { server, rooms, makeRoom };
+
+function start(port = PORT) {
+  server.listen(port, () => {
+    console.log('naqashi server on :' + port);
+    const ips = lanAddresses();
+    if (ips.length) {
+      console.log('\nType this into «آدرس سرور» on each phone (same wifi as this computer):');
+      for (const ip of ips) console.log(`    ${ip}:${port}`);
+      console.log('\nKeep this window open while you play. Ctrl+C stops the server.');
+    }
+  });
+}
+
+if (require.main === module) start();
+module.exports = { server, rooms, makeRoom, start };
