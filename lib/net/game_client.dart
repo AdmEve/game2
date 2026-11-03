@@ -47,9 +47,10 @@ class Stroke {
   final List<Offset> points; // normalised 0..1 so any screen size matches
 
   Map<String, dynamic> toJson() => {
-        'c': '#${(color.value & 0xFFFFFF).toRadixString(16).padLeft(6, '0')}',
+        'c': '#${(color.toARGB32() & 0xFFFFFF).toRadixString(16).padLeft(6, '0')}',
         'w': width,
-        'p': points.map((o) => {'x': o.dx, 'y': o.dy}).toList(),
+        // 4 decimals is a tenth of a pixel on a 1000 px board; keeps messages small
+        'p': points.map((o) => {'x': _r4(o.dx), 'y': _r4(o.dy)}).toList(),
       };
 
   factory Stroke.fromJson(Map<String, dynamic> j) => Stroke(
@@ -59,6 +60,18 @@ class Stroke {
             .map((e) => Offset((e['x'] as num).toDouble(), (e['y'] as num).toDouble()))
             .toList(),
       );
+}
+
+double _r4(double v) => (v * 10000).roundToDouble() / 10000;
+
+/// Accepts `192.168.1.5`, `192.168.1.5:8080`, `ws://192.168.1.5:8080/`
+/// and returns `host:port` (port 8080 when none is given).
+String normalizeHost(String input) {
+  var h = input.trim().replaceFirst(RegExp(r'^wss?://'), '');
+  h = h.replaceAll(RegExp(r'/+$'), '');
+  if (h.isEmpty) return h;
+  final hasPort = RegExp(r':\d+$').hasMatch(h);
+  return hasPort ? h : '$h:8080';
 }
 
 class ChatLine {
@@ -74,6 +87,11 @@ enum ChatKind { normal, near, hit, system }
 enum Phase { idle, lobby, choosing, drawing, stealing, results, over }
 
 enum Role { drawer, guesser, watcher }
+
+/// The server could not be reached (wrong address, firewall, not running).
+class ConnectFailed implements Exception {
+  const ConnectFailed();
+}
 
 /* --------------------------- the client --------------------------- */
 
@@ -102,6 +120,7 @@ class GameClient extends ChangeNotifier {
   String drawerName = '';
   int drawerTeam = 0;
   int secondsLeft = 0;
+  int clockTotal = 0; // length of the current countdown, from the server
   bool micAllowed = true;
   bool stealOpen = false;
   int stealPoints = 75;
@@ -121,10 +140,16 @@ class GameClient extends ChangeNotifier {
   Timer? _tick;
 
   bool get connected => _ch != null;
+
+  /// This device solved the current word (it is not the drawer).
+  bool get iSolved => !iAmDrawer && (me?.solved ?? false);
   Player? get me => players.where((p) => p.id == myId).firstOrNull;
   bool get iAmDrawer => role == Role.drawer;
-  bool get canGuess =>
-      role == Role.guesser || (stealOpen && phase == Phase.stealing && _onStealingTeam);
+  /// Mirrors the server's mayGuess(): during a steal only the other team may
+  /// guess; otherwise only players the server made guessers this turn.
+  bool get canGuess => phase == Phase.stealing
+      ? stealOpen && _onStealingTeam
+      : phase == Phase.drawing && role == Role.guesser;
   bool get _onStealingTeam => me != null && me!.team != drawerTeam;
 
   Future<void> connect({
@@ -137,9 +162,16 @@ class GameClient extends ChangeNotifier {
     final q = <String, String>{'name': name, 'avatar': avatar};
     if (code != null && code.isNotEmpty) q['code'] = code;
     if (public) q['type'] = 'public';
-    final uri = Uri.parse('ws://$host/').replace(queryParameters: q);
+    final uri = Uri.parse('ws://${normalizeHost(host)}/').replace(queryParameters: q);
 
-    _ch = WebSocketChannel.connect(uri);
+    final ch = WebSocketChannel.connect(uri);
+    try {
+      await ch.ready.timeout(const Duration(seconds: 6));
+    } catch (_) {
+      ch.sink.close();
+      throw const ConnectFailed();
+    }
+    _ch = ch;
     phase = Phase.lobby;
     notifyListeners();
 
@@ -150,8 +182,9 @@ class GameClient extends ChangeNotifier {
         notifyListeners();
       },
       onDone: () {
-        error ??= 'ارتباط با سرور بسته شد';
+        error ??= 'ارتباط با سرور قطع شد';
         _ch = null;
+        _tick?.cancel();
         notifyListeners();
       },
     );
@@ -297,8 +330,13 @@ class GameClient extends ChangeNotifier {
         break;
 
       case 'over':
+        _tick?.cancel();
         phase = Phase.over;
         gameOver = true;
+        players = (m['players'] as List)
+            .map((e) => Player.fromJson(e as Map<String, dynamic>))
+            .toList();
+        teamScore = List<int>.from((m['teamScore'] ?? [0, 0]) as List);
         if ((m['mode'] as String) == 'team') {
           winnerTeam = m['winner'] as int?;
         } else {
@@ -338,6 +376,7 @@ class GameClient extends ChangeNotifier {
   void _startClock(int seconds) {
     _tick?.cancel();
     secondsLeft = seconds;
+    clockTotal = seconds;
     _tick = Timer.periodic(const Duration(seconds: 1), (t) {
       secondsLeft--;
       if (secondsLeft <= 0) {

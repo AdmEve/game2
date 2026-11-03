@@ -18,6 +18,7 @@ class _GameScreenState extends State<GameScreen> {
   Color _color = C.ink;
   double _width = kBrushSizes[1];
   String? _shownError;
+  bool _lostShown = false;
 
   GameClient get c => widget.client;
 
@@ -29,12 +30,35 @@ class _GameScreenState extends State<GameScreen> {
 
   void _onChange() {
     if (!mounted) return;
-    if (c.error != null && c.error != _shownError) {
+    if (!c.connected && c.phase != Phase.over && !_lostShown) {
+      _lostShown = true;
+      _shownError = c.error;
+      _connectionLost(c.error ?? 'ارتباط با سرور قطع شد');
+    } else if (c.error != null && c.error != _shownError) {
       _shownError = c.error;
       ScaffoldMessenger.of(context)
           .showSnackBar(SnackBar(content: Text(c.error!), backgroundColor: C.anar));
     }
     setState(() {});
+  }
+
+  Future<void> _connectionLost(String why) async {
+    await showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => Directionality(
+        textDirection: TextDirection.rtl,
+        child: AlertDialog(
+          backgroundColor: C.panel,
+          title: const Text('از بازی بیرون اومدی', style: TextStyle(fontWeight: FontWeight.w800)),
+          content: Text(why, style: const TextStyle(color: C.txtDim, height: 1.7)),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('برگرد به خونه')),
+          ],
+        ),
+      ),
+    );
+    if (mounted) Navigator.of(context).popUntil((r) => r.isFirst);
   }
 
   @override
@@ -110,7 +134,7 @@ class _GameScreenState extends State<GameScreen> {
                   Container(
                     padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                     decoration: BoxDecoration(
-                        color: colors[i].withOpacity(.18),
+                        color: colors[i].withValues(alpha: .18),
                         borderRadius: BorderRadius.circular(20)),
                     child: Text(levels[i],
                         style: TextStyle(
@@ -129,7 +153,7 @@ class _GameScreenState extends State<GameScreen> {
 
   /* ----------------------------- header ---------------------------- */
   Widget _topBar({required Widget middle, required Color ringColor}) {
-    final total = c.phase == Phase.stealing ? 10 : (c.mode == 'team' ? 60 : 80);
+    final total = c.clockTotal;
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
       decoration: const BoxDecoration(
@@ -263,17 +287,25 @@ class _GameScreenState extends State<GameScreen> {
           padding: const EdgeInsets.symmetric(vertical: 10),
           color: C.zaferan,
           alignment: Alignment.center,
-          child: Text('${fa(10)} ثانیه فرصت دزدیدن امتیاز!',
+          child: Text('${fa(c.clockTotal)} ثانیه فرصت دزدیدن امتیاز!',
               style: const TextStyle(
                   color: Color(0xFF3A2600), fontWeight: FontWeight.w800, fontSize: 14)),
         ),
       _topBar(
         ringColor: C.zaferan,
         middle: Column(children: [
-          Text('${c.drawerName} داره می‌کشه',
-              style: const TextStyle(fontSize: 11, color: C.txtDim)),
+          Text(c.iSolved ? '🔒 حلش کردی!' : '${c.drawerName} داره می‌کشه',
+              style: TextStyle(
+                  fontSize: 11,
+                  color: c.iSolved ? C.firuzeh : C.txtDim,
+                  fontWeight: c.iSolved ? FontWeight.w800 : FontWeight.w400)),
           const SizedBox(height: 3),
-          MaskedWord(mask: c.mask),
+          if (c.iSolved && c.myWord != null)
+            Text(c.myWord!,
+                style: const TextStyle(
+                    fontSize: 21, fontWeight: FontWeight.w900, color: C.zaferan))
+          else
+            MaskedWord(mask: c.mask),
         ]),
       ),
       Expanded(
@@ -301,9 +333,11 @@ class _GameScreenState extends State<GameScreen> {
               enabled: canGuess,
               onSubmitted: (_) => _submit(),
               decoration: InputDecoration(
-                hintText: canGuess
-                    ? (c.stealOpen ? 'زود باش، بدزدش!' : 'حدست رو بنویس…')
-                    : 'نوبت تیم مقابله — فقط تماشا کن',
+                hintText: !canGuess
+                    ? 'نوبت تیم مقابله — فقط تماشا کن'
+                    : c.iSolved
+                        ? 'پیامت فقط به حل‌کننده‌ها می‌رسه…'
+                        : (c.stealOpen ? 'زود باش، بدزدش!' : 'حدست رو بنویس…'),
               ),
             ),
           ),

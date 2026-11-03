@@ -17,6 +17,7 @@ class _HomeScreenState extends State<HomeScreen> {
   final _name = TextEditingController();
   final _host = TextEditingController(text: '192.168.1.10:8080');
   String _avatar = '🦊';
+  bool _busy = false;
 
   @override
   void initState() {
@@ -38,13 +39,27 @@ class _HomeScreenState extends State<HomeScreen> {
     await p.setString('host', _host.text.trim());
 
     final client = GameClient();
-    await client.connect(
-      host: _host.text.trim(),
-      name: name,
-      avatar: _avatar,
-      code: code,
-      public: public,
-    );
+    setState(() => _busy = true);
+    try {
+      await client.connect(
+        host: _host.text.trim(),
+        name: name,
+        avatar: _avatar,
+        code: code,
+        public: public,
+      );
+    } on ConnectFailed {
+      client.dispose();
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          backgroundColor: C.anar,
+          content: Text('به سرور وصل نشد. آدرس سرور رو چک کن و مطمئن شو گوشی و سرور روی یک وای‌فای‌ان.'),
+        ));
+      }
+      return;
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
     if (!mounted) return;
     Navigator.of(context).push(
       MaterialPageRoute(builder: (_) => GameScreen(client: client)),
@@ -150,11 +165,12 @@ class _HomeScreenState extends State<HomeScreen> {
               ]),
             ),
             const SizedBox(height: 16),
-            PrimaryButton('ساخت اتاق خصوصی', onTap: () => _go()),
+            PrimaryButton(_busy ? 'در حال وصل شدن…' : 'ساخت اتاق خصوصی',
+                onTap: _busy ? null : () => _go()),
             const SizedBox(height: 8),
-            GhostButton('با کد اتاق وارد شو', onTap: _joinByCode),
+            GhostButton('با کد اتاق وارد شو', onTap: _busy ? null : _joinByCode),
             const SizedBox(height: 8),
-            GhostButton('بازی سریع با بقیه', onTap: () => _go(public: true)),
+            GhostButton('بازی سریع با بقیه', onTap: _busy ? null : () => _go(public: true)),
           ]),
         ),
       ),
