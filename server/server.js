@@ -27,6 +27,7 @@ function makeRoom(type, opts = {}) {
     order: [], turnIdx: 0,
     turnNo: 0,                // 1-based number of the turn being played or just finished
     word: null,               // NEVER broadcast
+    usedWords: new Set(),     // offered this game, not offered again
     mask: null,
     strokes: [],
     guessed: new Set(),
@@ -95,6 +96,7 @@ function startGame(r) {
   r.turnIdx = 0;
   r.players.forEach(p => { p.score = 0; });
   r.teamScore = [0, 0]; r.mvp = {};
+  r.usedWords = new Set();
   nextTurn(r);
 }
 
@@ -108,7 +110,7 @@ function nextTurn(r) {
   r.guessed = new Set(); r.scoreGain = {};
   r.players.forEach(p => { p.solved = false; });
 
-  const choices = G.wordChoices();
+  const choices = G.wordChoices(r.usedWords);
   d.choices = choices;
   send(d, { t: 'choices', words: choices });          // only the drawer sees words
   broadcast(r, { t: 'waiting', drawer: d.id, drawerName: d.name }, d);

@@ -212,6 +212,14 @@ function client(name, opts = {}) {
   ok(!!after.id, 'and the server is still up for everyone else');
   after.ws.close();
 
+  console.log('\n=== WORD CHOICES ===');
+  const G = require('./game');
+  const used = new Set(), offered = [];
+  for (let i = 0; i < G.WORDS.h.length; i++) offered.push(...G.wordChoices(used));
+  ok(new Set(offered).size === offered.length, `no word offered twice in a game (${offered.length} offers)`);
+  const more = G.wordChoices(used);
+  ok(more.length === 3 && more.every(Boolean), 'a tier that runs out starts over instead of failing');
+
   console.log(`\n${pass} passed, ${fail} failed\n`);
   process.exit(fail ? 1 : 0);
 })();

@@ -53,7 +53,22 @@ const WORDS = {
   h: ['تخت جمشید', 'برج آزادی', 'کوه دماوند', 'چهارشنبه‌سوری', 'شب یلدا', 'هفت‌سین', 'زورخانه', 'قنات'],
 };
 const pick = a => a[Math.floor(Math.random() * a.length)];
-const wordChoices = () => [pick(WORDS.e), pick(WORDS.m), pick(WORDS.h)];
+/**
+ * One easy, one medium, one hard word, none offered before in this game
+ * ([used] is updated). A tier that runs out starts over.
+ */
+function wordChoices(used = new Set()) {
+  return ['e', 'm', 'h'].map(tier => {
+    let fresh = WORDS[tier].filter(w => !used.has(w));
+    if (!fresh.length) {
+      WORDS[tier].forEach(w => used.delete(w));
+      fresh = WORDS[tier];
+    }
+    const w = pick(fresh);
+    used.add(w);
+    return w;
+  });
+}
 
 /* ---------- scoring ---------- */
 const STEAL_POINTS = 75;
