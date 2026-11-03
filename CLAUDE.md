@@ -7,14 +7,17 @@ solo and wants to make money from it.
 
 **Read `HANDOFF.md` first** for current status, what is verified vs not, and the task order.
 
-## What exists (three pieces)
+## What exists
 
 | Path | What | State |
 |---|---|---|
-| `lib/`, `pubspec.yaml`, `android/`, `assets/fonts/` | Flutter Android client | **Written, never compiled.** Expect analyzer/build errors on first run. |
-| `server/` | Node + `ws` authoritative game server | **Tested.** `cd server && npm install && node test.js` → 29 passing. |
+| `lib/`, `pubspec.yaml`, `android/`, `assets/fonts/` | Flutter Android client (Flutter 3.47.9) | **Builds.** Analyzer clean. Not yet tried on a real phone. |
+| `server/` | Node + `ws` authoritative game server | **Tested.** `cd server && npm install && node test.js` → 45 passing. |
+| `test/` | `widget_test.dart`, `protocol_test.dart` (app client vs real server) | Passing. Protocol test needs `npm install` in `server/`. |
+| `tool/ui_e2e/` | Web build of the app driven by Playwright on simulated phones, screenshots every screen | Passing. Cloud sessions only (needs Playwright + Chromium). |
 | `prototype/naqashi.html` | Single-file web prototype (bots, no networking) | Working. Reference for UI feel and rules only. Not connected to the server. |
-| `.github/workflows/build.yml` | CI that builds the APK on GitHub | Written, never run. Fallback if local toolchain download fails. |
+| `.github/workflows/build.yml` | CI: tests, builds APKs, publishes release `android-latest` | **Green.** This is how APKs reach the owner. |
+| `PLAYTEST.md` | Owner's wifi playtest guide + feedback checklist | Current. |
 | `docs/` | `GAME_RULES.md`, `MARKET_AND_MONETIZATION.md` | Reference. |
 
 ## Environment
@@ -28,7 +31,15 @@ solo and wants to make money from it.
   should run in the background. **Before stopping each session, update `HANDOFF.md`'s
   "Session log" section** so the next session can resume cold.
 - Flutter on Windows needs **Developer Mode** enabled (symlink support for plugins):
-  `start ms-settings:developers`.
+  `start ms-settings:developers`. (Only if Flutter is ever installed on the laptop: so far all
+  builds happen in Claude Code cloud sessions and GitHub CI, and the owner needs only Node.)
+- **Claude Code cloud sessions** can install Flutter (`/opt/flutter`) and the Android SDK
+  (`/opt/android-sdk`) and build here, but nothing persists between sessions: reinstall from
+  `storage.googleapis.com/flutter_infra_release` and `dl.google.com`. Maven Central returns HTTP 429 to
+  these machines; add a user-level `~/.gradle/init.d/` script that rewrites
+  `https://repo.maven.apache.org/maven2` to `https://maven-central.storage-download.googleapis.com/maven2/`
+  (in `beforeSettings` and `allprojects`, repositories `configureEach`). No KVM, so no emulator:
+  verify with `flutter test` and `tool/ui_e2e/`.
 
 ## Commands
 
@@ -37,11 +48,17 @@ solo and wants to make money from it.
 cd server && npm install && node test.js        # must stay green
 node server.js                                  # listens :8080
 
-# app (after first-time setup in HANDOFF.md)
+cd server && npm run bundle                     # dist/naqashi-server.js, single file, needs only Node
+
+# app
 flutter pub get
-flutter analyze
+flutter analyze                                 # must say "No issues found"
+flutter test                                    # widget + protocol tests (needs server/node_modules)
 flutter run                                     # plugged-in phone
 flutter build apk --release --split-per-abi     # output: build/app/outputs/flutter-apk/
+
+# UI playthrough on simulated phones (cloud session)
+tool/ui_e2e/build_web.sh /tmp/web && node tool/ui_e2e/play.cjs /tmp/web /tmp/shots 2
 ```
 
 ## Architecture rules — do not break these
@@ -53,7 +70,8 @@ flutter build apk --release --split-per-abi     # output: build/app/outputs/flut
    offline practice only — never score a networked game with it.
 3. **Voice policy:** voice only in **private** rooms (invite code). Public matchmaking is
    **text-only** until a reporting flow exists. Host can mute-for-all and kick in private rooms.
-   The drawer's mic is disabled in team mode (they could say the word).
+   The drawer's mic is disabled in team mode (they could say the word). Until audio exists,
+   `kVoiceBuilt = false` (`lib/config.dart`) hides all voice UI — never show voice controls that do nothing.
 4. **Solved players are gated:** once you solve, your chat reaches only other solvers, and
    (when voice exists) your audio must not reach non-solvers.
 5. **Team mode:** only the drawer's team may guess; first correct guess ends the turn; if
@@ -69,12 +87,13 @@ flutter build apk --release --split-per-abi     # output: build/app/outputs/flut
 - Dart: `flutter_lints`; `flutter analyze` should end clean before you call something done.
 - Server: plain Node, no framework, `'use strict'`. Pure rules in `game.js`, I/O in `server.js`.
   Every server rule needs a test in `test.js`. Run it before finishing.
+- Protocol changes: update `test/protocol_test.dart` too, so the app and server stay in agreement.
+- The repo is **public**: never commit keystores, `key.properties` or other secrets.
 - Prefer small, verifiable steps. Say plainly what you verified and what you did not.
 - Do not claim an APK exists unless you built it and can name the file path.
 
 ## Known gaps (also tracked in HANDOFF.md)
 
-Flutter code uncompiled; app is not yet connected end-to-end to the server; no audio
-transport; no billing/ads; no reconnection; no rate limiting; no "play again"; stroke
-sync only sends completed strokes; no undo/eraser in the Flutter drawing tools; a
-disconnected drawer stalls the turn until the timer expires.
+Not tried on a real phone yet; no audio transport; no billing/ads; no reconnection; no rate
+limiting (payload is capped); no "play again"; stroke sync only sends completed strokes; no
+undo/eraser in the Flutter drawing tools; ~30-word bank; temporary signing key per CI build.

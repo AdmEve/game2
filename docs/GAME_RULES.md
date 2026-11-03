@@ -10,20 +10,27 @@ No elimination: the result is a ranked scoreboard (free-for-all) or two team tot
 
 ## A turn
 
-1. **choosing** — drawer gets 3 words (easy / medium / hard); 20 s to pick, else the first is auto-picked. Drawer may **skip** for 0 points.
+1. **choosing** — drawer gets 3 words (easy / medium / hard), none offered earlier in the game; 20 s to pick, else the first is auto-picked. Drawer may **skip** for 0 points.
 2. **drawing** — 80 s (free-for-all) or 60 s (team). Guessers see a letter mask; hints reveal one letter at ~35 % and ~65 % of elapsed time, **to guessers only**.
 3. **(team only) stealing** — if the clock runs out with no correct guess, the opposing team gets 10 s.
 4. **results** — word revealed, gains shown; after `resultPause` (default 5 s) the next turn starts automatically, or the game ends after the last turn.
 
-A turn ends early when: (free-for-all) every guesser has solved; (team) the first correct guess lands;
-or the drawer taps done.
+A turn ends early when: (free-for-all) every guesser still in the room has solved; (team) the first
+correct guess lands; the drawer taps done; or the drawer leaves (scored as a skip).
+
+`room.turn` is the 1-based number of the turn being played, or just finished during results.
+
+## Leaving
+
+A player who leaves (or is kicked) loses their future turns; `turns` shrinks. If one player is left the
+game ends. Departed solvers don't count towards the drawer's pay.
 
 ## Scoring
 
 | Event | Points |
 |---|---|
 | Guesser solves | `round(100 + secsLeft/turnLen × 200)` → 300 instant, 200 half-time, 100 at buzzer |
-| Drawer (free-for-all) | `round(150 × solved / possibleGuessers)`; 0 if the turn was skipped |
+| Drawer (free-for-all) | `round(150 × solved / possibleGuessers)` over players still in the room; 0 if the turn was skipped |
 | Team solve | same guesser formula, added to that team's total; individual solves tracked for MVP |
 | Steal | flat 75 to the stealing team |
 
@@ -52,7 +59,7 @@ Drawer's mic is off in team mode. Winner = higher team total; ties are draws. MV
 | Voice | Yes | **No** — text only |
 | Host mute-for-all / kick | Yes | No |
 | Room code shown | Yes | No |
-| Modes | FFA or team | FFA (teams need stable groups) |
+| Modes | FFA or team | FFA only — the server ignores `mode` (teams need stable groups) |
 
 Local mute (this device only) and **report** exist in both. Reporting must be real before public voice is ever considered.
 

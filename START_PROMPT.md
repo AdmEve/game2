@@ -1,33 +1,21 @@
-# Paste this as your first message to Claude Code
+# Starting a new Claude Code session on this project
 
-Open PowerShell, `cd` into this unzipped folder, then run Claude Code from there:
-
-```powershell
-cd Documents\naqashi_project
-& "$env:USERPROFILE\.local\bin\claude.exe"
-```
-
-Answer **Yes, I trust this folder** (you are inside the project, not your whole user directory).
-Approve the install steps when it asks.
+Paste this as the first message (cloud session at claude.ai/code with the `AdmEve/game2` repo, or
+Claude Code on the laptop):
 
 ---
 
-Read CLAUDE.md and HANDOFF.md fully before doing anything.
+Read CLAUDE.md and HANDOFF.md fully before doing anything, including the newest Session log entry.
 
-Goal for this session: produce an installable release APK of this Flutter app.
+Here are my playtest notes from PLAYTEST.md: <paste them, or say "no playtest yet">
 
-Follow "Step 1" in HANDOFF.md exactly. In short: git baseline; check which of Flutter 3.24.x, a JDK
-and the Android SDK are already installed and install only what is missing; enable Windows Developer
-Mode; preserve android/app/src/main/AndroidManifest.xml across `flutter create --platforms=android .`;
-`flutter pub get`; `flutter analyze` and fix every error; `flutter build apk --release --split-per-abi`.
+Goal for this session: <e.g. "fix what the playtest found, then live stroke streaming + undo/eraser">.
 
-The Dart code has never been compiled, so expect errors — fix them yourself and keep looping until the
-build succeeds. Do not change game rules or the architecture rules in CLAUDE.md to make errors go away;
-if a fix would require that, stop and ask me.
+Keep `flutter analyze`, `flutter test` and `server/test.js` green, push to the work branch so CI
+publishes a new build to the android-latest release, and append a dated Session log entry to
+HANDOFF.md before you stop. Tell me plainly what you verified and what you didn't.
 
-I am in Iran and can only be at this laptop for about an hour a night. If a download keeps stalling,
-tell me plainly and suggest a mirror or the GitHub Actions route instead of retrying the same
-multi-GB download. Run long downloads in the background.
+---
 
-Before you stop, append a dated entry to the "Session log" in HANDOFF.md: what you did, what is broken,
-what is next. At the end, tell me the exact path and size of each APK, or exactly where the build is stuck.
+The original first-session prompt (install Flutter on the Windows laptop) is obsolete: builds now run
+in Claude Code cloud sessions and GitHub Actions, and the laptop only needs Node for the playtest server.

@@ -6,16 +6,19 @@ to guessers, so the client cannot be trusted or tampered with.
 ## Run it
 
 ```bash
-npm install ws
-node server.js            # listens on :8080
+npm install
+node server.js            # listens on :8080, prints the LAN address for phones
 PORT=3000 node server.js  # or pick a port
+npm run bundle            # dist/naqashi-server.js: one file, runs with plain `node`
 ```
 
-Test with four simulated clients:
+Test with simulated clients:
 
 ```bash
-node test.js              # 26 assertions, no browser needed
+node test.js              # 45 assertions, no browser needed
 ```
+
+`TURN_SECONDS` and `RESULT_PAUSE_MS` shorten turns for tests; leave them unset for real play.
 
 Playtesting on your home wifi: run the server on your laptop, find your local
 IP (`hostname -I` on Linux, `ipconfig getifaddr en0` on macOS), and have phones
@@ -74,6 +77,11 @@ Server → client:
 - Once you solve, your chat reaches only other solvers — no accidental spoiling.
 - Only the current drawer's strokes are accepted and rebroadcast.
 - Team turns are 60s, free-for-all 80s, steal window 10s for a flat 75 points.
+- No word is offered twice in one game (until a difficulty tier runs out).
+- Leaving mid-game: the leaver's future turns are dropped; if they were drawing,
+  the turn ends; if the last unsolved guesser leaves, the turn ends; with one
+  player left the game ends.
+- Messages over 256 KB close that connection (and only that one).
 
 ## Not done yet
 
@@ -84,4 +92,5 @@ Server → client:
   playtesting; add Redis before running more than one server process.
 - **Reconnection.** A dropped player is removed rather than given a grace
   period to rejoin.
-- **Rate limiting** on `guess` and `stroke`.
+- **Rate limiting** on `guess` and `stroke` (size is capped, rate is not).
+- **Play again.** After `over` the room stays over; start a new room.
