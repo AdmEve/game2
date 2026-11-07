@@ -16,14 +16,14 @@ const norm = s => String(s)
   .replace(/\s+/g, '')
   .toLowerCase().trim();
 
-const ALIASES = {
-  'دوچرخه': ['بایسیکل'],
-  'هلی‌کوپتر': ['هلیکوپتر', 'بالگرد'],
-  'کوه دماوند': ['دماوند'],
-  'برج آزادی': ['آزادی'],
-  'تخت جمشید': ['پرسپولیس'],
-  'چهارشنبه‌سوری': ['چارشنبه سوری'],
-};
+/* ---------- word bank (shared with the app's offline mode) ---------- */
+const BANK = require('../assets/words/fa.json');
+const ALIASES = BANK.aliases;
+/** { e: [...], m: [...], h: [...] } — all categories of each tier together. */
+const WORDS = { e: [], m: [], h: [] };
+for (const [tier, key] of [['1', 'e'], ['2', 'm'], ['3', 'h']]) {
+  for (const list of Object.values(BANK.tiers[tier])) WORDS[key].push(...list);
+}
 
 function lev(a, b) {
   const m = [];
@@ -47,11 +47,6 @@ function judge(guess, word) {
 }
 
 /* ---------- words ---------- */
-const WORDS = {
-  e: ['سماور', 'هندوانه', 'چتر', 'عینک', 'ماهی', 'کلید', 'قوری', 'گربه', 'دوچرخه', 'ساعت', 'قایق', 'پیتزا'],
-  m: ['فرش ایرانی', 'دیزی', 'بادگیر', 'آبشار', 'فانوس دریایی', 'آسیاب بادی', 'هلی‌کوپتر', 'قطار', 'کندو'],
-  h: ['تخت جمشید', 'برج آزادی', 'کوه دماوند', 'چهارشنبه‌سوری', 'شب یلدا', 'هفت‌سین', 'زورخانه', 'قنات'],
-};
 const pick = a => a[Math.floor(Math.random() * a.length)];
 /**
  * One easy, one medium, one hard word, none offered before in this game
