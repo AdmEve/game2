@@ -10,6 +10,8 @@ import 'dart:math';
 import 'dart:ui';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:naqashi/theme.dart';
+import 'package:naqashi/draw/board.dart';
 import 'package:naqashi/net/game_client.dart';
 
 const turnSeconds = 4; // server TURN_SECONDS override, so the steal test is quick
@@ -128,16 +130,28 @@ void main() {
     expect(d.secondsLeft, turnSeconds);
 
     // a stroke reaches the guessers with colour, width and points intact
-    d.sendStroke(Stroke(
-        color: const Color(0xFFE14D63), width: 6, points: const [Offset(.1, .2), Offset(.5, .5)]));
-    await all(guessers, (x) => x.strokes.length == 1, 'stroke arrives');
-    final s = guessers.first.strokes.single;
+    d.sendStroke(Stroke(id: 0, color: const Color(0xFFE14D63), width: 6, points: [const Offset(.1, .2), const Offset(.5, .5)]));
+    await all(guessers, (x) => x.board.strokes.length == 1, 'stroke arrives');
+    final s = guessers.first.board.strokes.single;
     expect(s.color, const Color(0xFFE14D63));
     expect(s.width, 6);
     expect(s.points.last, const Offset(.5, .5));
 
+    // live: points stream while the finger is still down
+    final live = Stroke(id: d.board.nextId, color: C.ink, width: 7, points: [const Offset(.2, .2)]);
+    d.board.begin(live);
+    d.strokePoints(live, [const Offset(.2, .2)], true);
+    await all(guessers, (x) => x.board.strokes.length == 2, 'a new stroke appears before the finger lifts');
+    d.board.extend(live.id, [const Offset(.3, .3), const Offset(.4, .35)]);
+    d.strokePoints(live, [const Offset(.3, .3), const Offset(.4, .35)], false);
+    await all(guessers, (x) => x.board.strokes.last.points.length == 3, 'more points of the same stroke follow');
+    d.strokeEnd(live);
+
+    d.undo();
+    await all(guessers, (x) => x.board.strokes.length == 1, 'undo removes the last stroke everywhere');
+
     d.clearCanvas();
-    await all(guessers, (x) => x.strokes.isEmpty, 'clear arrives');
+    await all(guessers, (x) => x.board.isEmpty, 'clear arrives');
 
     final g1 = guessers[0], g2 = guessers[1];
 
@@ -189,7 +203,7 @@ void main() {
       dd.pickWord(1);
       await all(everyone, (x) => x.phase == Phase.drawing && x.turn == t, 'turn $t drawing');
       // the previous turn's strokes and chat are gone
-      expect(everyone.every((x) => x.strokes.isEmpty), isTrue);
+      expect(everyone.every((x) => x.board.isEmpty), isTrue);
       for (final g in everyone.where((x) => x != dd)) {
         expect(g.myWord, isNull, reason: 'turn $t: a guesser does not hold last turn\'s word');
         g.guess(dd.myWord!);
@@ -283,6 +297,63 @@ void main() {
     expect(a.voiceAllowed, isFalse);
     a.dispose();
     b.dispose();
+  });
+
+  test('host settings, play again', () async {
+    final a = await join('میزبان');
+    final b = await join('مهمان', code: a.roomCode);
+    await all([a, b], (x) => x.players.length == 2, 'two players');
+    a.setRounds(1);
+    a.setTurnLen(45);
+    await all([a, b], (x) => x.rounds == 1 && x.turnLen == 45 && !x.turnLenAuto, 'settings reach everyone');
+    a.start();
+    for (var t = 1; t <= 2; t++) {
+      final d = await nextDrawer([a, b]);
+      d.pickWord(0);
+      await all([a, b], (x) => x.phase == Phase.drawing && x.turn == t, 'turn $t');
+      expect(d.clockTotal, 45);
+      (d == a ? b : a).guess(d.myWord!);
+      await all([a, b], (x) => x.phase == Phase.results || x.phase == Phase.over, 'turn $t done');
+    }
+    await all([a, b], (x) => x.phase == Phase.over, 'one-round game over');
+    a.playAgain();
+    await all([a, b], (x) => x.phase == Phase.lobby && !x.gameOver && x.players.every((p) => p.score == 0), 'back to the lobby');
+    a.dispose();
+    b.dispose();
+  });
+
+  test('a dropped connection resumes with the full state', () async {
+    final a = await join('نقاش');
+    final b = await join('حدس‌زن', code: a.roomCode);
+    await all([a, b], (x) => x.players.length == 2, 'two players');
+    a.start();
+    final d = await nextDrawer([a, b]);
+    final g = d == a ? b : a;
+    d.pickWord(0);
+    await all([a, b], (x) => x.phase == Phase.drawing, 'drawing');
+    d.sendStroke(Stroke(id: 0, color: C.ink, width: 6, points: [const Offset(.1, .1), const Offset(.9, .9)]));
+    await until(g, () => g.board.strokes.length == 1, 'stroke arrives');
+
+    g.debugDropConnection();
+    await until(g, () => g.reconnecting, 'notices the drop');
+    await until(d, () => d.players.any((p) => p.id == g.myId && p.away), 'others see them away');
+    await until(g, () => !g.reconnecting && g.connected, 'resumes', timeout: const Duration(seconds: 10));
+    expect(g.phase, Phase.drawing);
+    expect(g.role, Role.guesser);
+    expect(g.myWord, isNull, reason: 'a resumed guesser still has no word');
+    expect(g.board.strokes.length, 1, reason: 'the drawing comes back');
+    expect(g.secondsLeft, greaterThan(0));
+    g.guess(d.myWord!);
+    await until(g, () => g.myWord != null, 'can still score after resuming');
+    a.dispose();
+    b.dispose();
+  });
+
+  test('a mistyped room code is refused', () async {
+    final c = GameClient();
+    await expectLater(c.connect(host: host, name: 'گم', avatar: '🦊', code: 'ZZZZZ'),
+        throwsA(isA<ConnectFailed>().having((e) => e.why, 'why', 'no_room')));
+    c.dispose();
   });
 
   test('a kicked player is told and disconnected', () async {

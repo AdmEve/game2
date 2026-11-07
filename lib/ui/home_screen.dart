@@ -1,12 +1,15 @@
 import 'package:flutter/material.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 
-import '../config.dart';
+import '../core/progress.dart';
+import '../core/settings.dart';
+import '../core/sfx.dart';
 import '../net/game_client.dart';
 import '../theme.dart';
-import 'game_screen.dart';
-
-const kAvatars = ['🦊', '🐼', '🐯', '🦁', '🐸', '🐙', '🦉', '🐧', '🦄', '🐝', '🦖', '🐳'];
+import 'fx.dart';
+import 'online/game_screen.dart';
+import 'party/party_setup.dart';
+import 'sheets.dart';
+import 'widgets.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -15,46 +18,48 @@ class HomeScreen extends StatefulWidget {
 }
 
 class _HomeScreenState extends State<HomeScreen> {
-  final _name = TextEditingController();
-  final _host = TextEditingController(text: '192.168.1.10:8080');
-  String _avatar = '🦊';
   bool _busy = false;
 
   @override
   void initState() {
     super.initState();
-    SharedPreferences.getInstance().then((p) {
-      setState(() {
-        _name.text = p.getString('name') ?? '';
-        _avatar = p.getString('avatar') ?? '🦊';
-        _host.text = p.getString('host') ?? _host.text;
-      });
-    });
+    Settings.I.addListener(_refresh);
   }
 
-  Future<void> _go({String? code, bool public = false}) async {
-    final name = _name.text.trim().isEmpty ? 'بازیکن' : _name.text.trim();
-    final p = await SharedPreferences.getInstance();
-    await p.setString('name', name);
-    await p.setString('avatar', _avatar);
-    await p.setString('host', _host.text.trim());
+  @override
+  void dispose() {
+    Settings.I.removeListener(_refresh);
+    super.dispose();
+  }
 
+  void _refresh() {
+    if (mounted) setState(() {});
+  }
+
+  Future<void> _online() async {
+    final pick = await showOnlineSheet(context);
+    if (pick == null || !mounted) return;
+    final s = Settings.I;
     final client = GameClient();
     setState(() => _busy = true);
     try {
       await client.connect(
-        host: _host.text.trim(),
-        name: name,
-        avatar: _avatar,
-        code: code,
-        public: public,
+        host: s.host,
+        name: s.name.isEmpty ? 'بازیکن' : s.name,
+        avatar: s.avatar,
+        code: pick.$1 == OnlineChoice.join ? pick.$2 : null,
+        public: pick.$1 == OnlineChoice.quick,
       );
-    } on ConnectFailed {
+    } on ConnectFailed catch (e) {
       client.dispose();
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
           backgroundColor: C.anar,
-          content: Text('به سرور وصل نشد. آدرس سرور رو چک کن و مطمئن شو گوشی و سرور روی یک وای‌فای‌ان.'),
+          content: Text(switch (e.why) {
+            'no_room' => 'اتاقی با این کد پیدا نشد. کد رو دوباره چک کن.',
+            'in_progress' => 'بازی این اتاق شروع شده. صبر کن تموم بشه.',
+            _ => 'به سرور وصل نشد. آدرس سرور رو چک کن و مطمئن شو گوشی و سرور روی یک وای‌فای‌ان.',
+          }),
         ));
       }
       return;
@@ -62,116 +67,136 @@ class _HomeScreenState extends State<HomeScreen> {
       if (mounted) setState(() => _busy = false);
     }
     if (!mounted) return;
-    Navigator.of(context).push(
-      MaterialPageRoute(builder: (_) => GameScreen(client: client)),
-    );
+    await Navigator.of(context).push(MaterialPageRoute(builder: (_) => OnlineGameScreen(client: client)));
+    if (mounted) setState(() {});
   }
 
-  Future<void> _joinByCode() async {
-    final c = TextEditingController();
-    final code = await showDialog<String>(
-      context: context,
-      builder: (ctx) => Directionality(
-        textDirection: TextDirection.rtl,
-        child: AlertDialog(
-          backgroundColor: C.panel,
-          title: const Text('کد اتاق', style: TextStyle(fontWeight: FontWeight.w800)),
-          content: TextField(
-            controller: c,
-            textCapitalization: TextCapitalization.characters,
-            decoration: const InputDecoration(hintText: 'مثلاً 7K4M2'),
-          ),
-          actions: [
-            TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('بی‌خیال')),
-            TextButton(
-                onPressed: () => Navigator.pop(ctx, c.text.trim().toUpperCase()),
-                child: const Text('برو')),
-          ],
-        ),
-      ),
-    );
-    if (code != null && code.isNotEmpty) _go(code: code);
-  }
+  void _party() => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const PartySetupScreen()));
 
   @override
   Widget build(BuildContext context) {
+    final s = Settings.I;
+    final lv = Progress.levelOf(s.xp);
     return Scaffold(
-      body: SafeArea(
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.fromLTRB(22, 28, 22, 24),
-          child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-            Row(mainAxisAlignment: MainAxisAlignment.center, children: [
-              const Text('🎨', style: TextStyle(fontSize: 34)),
-              const SizedBox(width: 10),
-              RichText(
-                text: const TextSpan(
-                  style: TextStyle(
-                      fontFamily: 'Vazirmatn', fontSize: 36, fontWeight: FontWeight.w900),
-                  children: [
-                    TextSpan(text: 'نقاشی '),
-                    TextSpan(text: 'بکش', style: TextStyle(color: C.firuzeh)),
-                  ],
-                ),
-              ),
-            ]),
-            const SizedBox(height: 8),
-            const Text('یکی می‌کشه، بقیه حدس می‌زنن.',
-                textAlign: TextAlign.center,
-                style: TextStyle(color: C.txtDim, fontSize: 15, height: 1.7)),
-            const SizedBox(height: 22),
-            Panel(
-              child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-                const Text('اسمت چیه؟',
-                    style: TextStyle(fontSize: 13, color: C.txtDim, fontWeight: FontWeight.w600)),
-                const SizedBox(height: 10),
-                TextField(
-                    controller: _name,
-                    maxLength: 14,
-                    decoration: const InputDecoration(hintText: 'مثلاً پویا', counterText: '')),
-                const SizedBox(height: 10),
-                Wrap(
-                  spacing: 9,
-                  runSpacing: 9,
-                  children: kAvatars.map((a) {
-                    final on = a == _avatar;
-                    return GestureDetector(
-                      onTap: () => setState(() => _avatar = a),
+      body: DoodleBackground(
+        child: SafeArea(
+          child: Stack(children: [
+            ListView(
+              padding: const EdgeInsets.fromLTRB(20, 12, 20, 24),
+              children: [
+                Row(children: [
+                  Expanded(
+                    child: Semantics(
+                      label: 'پروفایل',
+                      button: true,
+                      child: Pressable(
+                        onTap: () => showProfileSheet(context),
+                        child: Container(
+                          padding: const EdgeInsets.fromLTRB(12, 6, 6, 6),
+                          decoration: BoxDecoration(
+                            color: C.panel.withValues(alpha: .85),
+                            borderRadius: BorderRadius.circular(40),
+                            border: Border.all(color: C.line),
+                          ),
+                          child: Row(children: [
+                            AvatarBubble(s.avatar, size: 40, ring: C.zaferan),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: Column(crossAxisAlignment: CrossAxisAlignment.start, mainAxisSize: MainAxisSize.min, children: [
+                                Text(s.name.isEmpty ? 'بازیکن' : s.name,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 15)),
+                                const SizedBox(height: 3),
+                                LevelBar(level: lv.level, into: lv.into, need: lv.need, compact: true),
+                              ]),
+                            ),
+                            const SizedBox(width: 10),
+                          ]),
+                        ),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  Semantics(
+                    label: 'تنظیمات',
+                    button: true,
+                    excludeSemantics: true,
+                    child: Pressable(
+                      onTap: () => showSettingsSheet(context),
                       child: Container(
-                        width: 46,
-                        height: 46,
+                        width: 52,
+                        height: 52,
                         alignment: Alignment.center,
                         decoration: BoxDecoration(
-                          color: on ? const Color(0x292AB5A6) : C.panel2,
-                          borderRadius: BorderRadius.circular(14),
-                          border: Border.all(color: on ? C.firuzeh : Colors.transparent, width: 2),
-                        ),
-                        child: Text(a, style: const TextStyle(fontSize: 23)),
+                            color: C.panel.withValues(alpha: .85), shape: BoxShape.circle, border: Border.all(color: C.line)),
+                        child: const Text('⚙️', style: TextStyle(fontSize: 22)),
                       ),
-                    );
-                  }).toList(),
+                    ),
+                  ),
+                ]),
+                const SizedBox(height: 34),
+                const Appear(scale: true, child: Center(child: Logo(size: 46))),
+                const SizedBox(height: 12),
+                const Appear(
+                  delay: Duration(milliseconds: 120),
+                  child: Text('یکی می‌کشه، بقیه حدس می‌زنن.',
+                      textAlign: TextAlign.center, style: TextStyle(color: C.txtDim, fontSize: 15.5)),
                 ),
-              ]),
-            ),
-            const SizedBox(height: 12),
-            Panel(
-              child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-                const Text('آدرس سرور',
-                    style: TextStyle(fontSize: 13, color: C.txtDim, fontWeight: FontWeight.w600)),
-                const SizedBox(height: 8),
-                TextField(
-                  controller: _host,
-                  textDirection: TextDirection.ltr,
-                  decoration: const InputDecoration(hintText: '192.168.1.10:8080'),
+                const SizedBox(height: 34),
+                Appear(
+                  delay: stagger(2),
+                  child: _ModeCard(
+                    icon: '🎉',
+                    title: 'دورهمی',
+                    subtitle: 'با یک گوشی و بدون اینترنت\nنقاشی یا پانتومیم، تیمی',
+                    colors: const [Color(0xFFF7B955), C.zaferan, C.zaferanDark],
+                    fg: C.onZaferan,
+                    badge: 'آفلاین',
+                    onTap: _party,
+                  ),
                 ),
-              ]),
+                const SizedBox(height: 14),
+                Appear(
+                  delay: stagger(3),
+                  child: _ModeCard(
+                    icon: '🎨',
+                    title: 'بازی با دوستان',
+                    subtitle: 'هر کس با گوشی خودش\nاتاق بساز یا با کد وارد شو',
+                    colors: const [Color(0xFF3FD0C0), C.firuzeh, C.firuzehDark],
+                    fg: C.onFiruzeh,
+                    badge: 'آنلاین',
+                    onTap: _busy ? null : _online,
+                  ),
+                ),
+                const SizedBox(height: 22),
+                Appear(
+                  delay: stagger(4),
+                  child: Center(
+                    child: Pressable(
+                      onTap: () => showHowToPlay(context),
+                      child: const Padding(
+                        padding: EdgeInsets.all(8),
+                        child: Text('📖  چطوری بازی کنم؟',
+                            style: TextStyle(color: C.txtDim, fontWeight: FontWeight.w800, fontSize: 14)),
+                      ),
+                    ),
+                  ),
+                ),
+              ],
             ),
-            const SizedBox(height: 16),
-            PrimaryButton(_busy ? 'در حال وصل شدن…' : 'ساخت اتاق خصوصی',
-                onTap: _busy ? null : () => _go()),
-            const SizedBox(height: 8),
-            GhostButton('با کد اتاق وارد شو', onTap: _busy ? null : _joinByCode),
-            const SizedBox(height: 8),
-            GhostButton('بازی سریع با بقیه', onTap: _busy ? null : () => _go(public: true)),
+            if (_busy)
+              const Positioned.fill(
+                child: ColoredBox(
+                  color: Color(0xAA0B1730),
+                  child: Center(
+                    child: Column(mainAxisSize: MainAxisSize.min, children: [
+                      CircularProgressIndicator(color: C.firuzeh),
+                      SizedBox(height: 14),
+                      Text('در حال وصل شدن…', style: TextStyle(fontWeight: FontWeight.w800)),
+                    ]),
+                  ),
+                ),
+              ),
           ]),
         ),
       ),
@@ -179,211 +204,73 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 }
 
-/* ------------------------------ lobby ------------------------------ */
-
-class LobbyView extends StatelessWidget {
-  const LobbyView({super.key, required this.client});
-  final GameClient client;
+class _ModeCard extends StatelessWidget {
+  const _ModeCard({
+    required this.icon,
+    required this.title,
+    required this.subtitle,
+    required this.colors,
+    required this.fg,
+    required this.onTap,
+    this.badge,
+  });
+  final String icon, title, subtitle;
+  final List<Color> colors;
+  final Color fg;
+  final VoidCallback? onTap;
+  final String? badge;
 
   @override
-  Widget build(BuildContext context) {
-    final voice = client.voiceOn;
-    final private = client.roomCode != null;
-    return SingleChildScrollView(
-      padding: const EdgeInsets.all(22),
-      child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-        Container(
-          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-          decoration: BoxDecoration(
-            color: C.panel,
-            borderRadius: BorderRadius.circular(14),
-            border: Border.all(color: voice ? C.line : const Color(0x66F2A93B)),
-          ),
-          child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Text(voice ? '🎙' : '💬', style: const TextStyle(fontSize: 17)),
-            const SizedBox(width: 9),
-            Expanded(
-              child: Text(
-                voice
-                    ? 'گفتگوی صوتی روشنه چون این اتاق خصوصیه.${client.isHost ? ' به‌عنوان میزبان می‌تونی هرکسی رو بی‌صدا یا اخراج کنی.' : ''}'
-                    : private
-                        ? 'اتاق خصوصیه: فقط کسایی که کد رو دارن میان تو.${client.isHost ? ' به‌عنوان میزبان می‌تونی هرکسی رو اخراج کنی.' : ''}'
-                        : 'بازی عمومیه و فقط چت متنی داره.',
-                style: const TextStyle(color: C.txtDim, fontSize: 13, height: 1.7),
-              ),
+  Widget build(BuildContext context) => Semantics(
+        button: true,
+        label: title,
+        excludeSemantics: true,
+        child: Pressable(
+          onTap: onTap,
+          sound: Snd.select,
+          scale: .97,
+          child: Container(
+            height: 132,
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(26),
+              gradient: LinearGradient(begin: Alignment.topRight, end: Alignment.bottomLeft, colors: colors.sublist(0, 2)),
+              boxShadow: [
+                BoxShadow(color: colors[2], offset: const Offset(0, 6)),
+                const BoxShadow(color: Color(0x55000000), blurRadius: 24, offset: Offset(0, 14)),
+              ],
             ),
-          ]),
-        ),
-        if (client.roomCode != null) ...[
-          const SizedBox(height: 14),
-          Panel(
-            child: Column(children: [
-              const Text('کد اتاق رو برای دوستات بفرست',
-                  style: TextStyle(color: C.txtDim, fontSize: 13)),
-              const SizedBox(height: 6),
-              Text(client.roomCode!,
-                  textDirection: TextDirection.ltr,
-                  style: const TextStyle(
-                      fontSize: 34, fontWeight: FontWeight.w900, color: C.zaferan, letterSpacing: 6)),
+            child: Stack(children: [
+              PositionedDirectional(
+                end: -10,
+                bottom: -18,
+                child: Opacity(opacity: .22, child: Text(icon, style: const TextStyle(fontSize: 120))),
+              ),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(20, 18, 20, 16),
+                child: Row(children: [
+                  Text(icon, style: const TextStyle(fontSize: 46)),
+                  const SizedBox(width: 14),
+                  Expanded(
+                    child: Column(crossAxisAlignment: CrossAxisAlignment.start, mainAxisAlignment: MainAxisAlignment.center, children: [
+                      Row(children: [
+                        Text(title, style: TextStyle(fontSize: 24, fontWeight: FontWeight.w900, color: fg)),
+                        if (badge != null) ...[
+                          const SizedBox(width: 8),
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                            decoration: BoxDecoration(color: fg.withValues(alpha: .15), borderRadius: BorderRadius.circular(20)),
+                            child: Text(badge!, style: TextStyle(fontSize: 11, fontWeight: FontWeight.w900, color: fg)),
+                          ),
+                        ],
+                      ]),
+                      const SizedBox(height: 4),
+                      Text(subtitle, style: TextStyle(fontSize: 13.5, height: 1.6, fontWeight: FontWeight.w600, color: fg.withValues(alpha: .85))),
+                    ]),
+                  ),
+                ]),
+              ),
             ]),
           ),
-        ],
-        const SizedBox(height: 14),
-        if (client.isHost)
-          Row(children: [
-            Expanded(child: _ModeChip('همه با هم', on: client.mode == 'ffa', onTap: () => client.setMode('ffa'))),
-            const SizedBox(width: 8),
-            Expanded(child: _ModeChip('تیمی', on: client.mode == 'team', onTap: () => client.setMode('team'))),
-          ]),
-        const SizedBox(height: 14),
-        ...client.players.map((p) => Container(
-              margin: const EdgeInsets.only(bottom: 8),
-              padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 10),
-              decoration: BoxDecoration(
-                color: C.panel,
-                borderRadius: BorderRadius.circular(14),
-                border: Border.all(color: C.line),
-              ),
-              child: Row(children: [
-                Text(p.avatar, style: const TextStyle(fontSize: 19)),
-                const SizedBox(width: 11),
-                Expanded(
-                    child: Text(p.name,
-                        style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 15))),
-                if (client.mode == 'team')
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                    decoration: BoxDecoration(
-                        color: p.team == 0 ? C.teamA : C.teamB,
-                        borderRadius: BorderRadius.circular(20)),
-                    child: Text(p.team == 0 ? 'آبی' : 'قرمز',
-                        style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w800)),
-                  ),
-                if (kVoiceBuilt && p.hostMuted) const Padding(
-                  padding: EdgeInsets.only(right: 6),
-                  child: Text('🔇', style: TextStyle(fontSize: 14)),
-                ),
-                if (p.id == client.myId)
-                  const Padding(
-                    padding: EdgeInsets.only(right: 6),
-                    child: Text('تو', style: TextStyle(fontSize: 12, color: C.txtDim)),
-                  )
-                else if (client.isHost)
-                  IconButton(
-                    icon: const Icon(Icons.more_horiz, size: 18, color: C.txtDim),
-                    onPressed: () => _hostSheet(context, client, p),
-                  ),
-              ]),
-            )),
-        const SizedBox(height: 10),
-        if (client.isHost)
-          PrimaryButton('شروع بازی',
-              onTap: client.players.length >= 2 ? client.start : null)
-        else
-          const Text('منتظر میزبان…',
-              textAlign: TextAlign.center, style: TextStyle(color: C.txtDim)),
-      ]),
-    );
-  }
-}
-
-class _ModeChip extends StatelessWidget {
-  const _ModeChip(this.label, {required this.on, required this.onTap});
-  final String label;
-  final bool on;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) => GestureDetector(
-        onTap: onTap,
-        child: Container(
-          padding: const EdgeInsets.symmetric(vertical: 12),
-          alignment: Alignment.center,
-          decoration: BoxDecoration(
-            color: on ? C.firuzeh : C.panel,
-            borderRadius: BorderRadius.circular(14),
-            border: Border.all(color: on ? C.firuzeh : C.line),
-          ),
-          child: Text(label,
-              style: TextStyle(
-                  fontWeight: FontWeight.w700,
-                  fontSize: 14,
-                  color: on ? const Color(0xFF06231F) : C.txt)),
-        ),
-      );
-}
-
-void _hostSheet(BuildContext context, GameClient client, Player p) {
-  showModalBottomSheet(
-    context: context,
-    backgroundColor: C.panel,
-    shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(24))),
-    builder: (ctx) => Directionality(
-      textDirection: TextDirection.rtl,
-      child: SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.all(18),
-          child: Column(mainAxisSize: MainAxisSize.min, children: [
-            Text(p.name, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w800)),
-            const SizedBox(height: 14),
-            if (kVoiceBuilt) _SheetAction(
-              icon: p.hostMuted ? '🔊' : '🚫',
-              label: p.hostMuted ? 'اجازه حرف زدن بده' : 'برای همه بی‌صدا کن',
-              note: 'میزبان: کسی صداش رو نمی‌شنوه',
-              onTap: () {
-                client.hostMute(p.id);
-                Navigator.pop(ctx);
-              },
-            ),
-            _SheetAction(
-              icon: '👋',
-              label: 'اخراج از اتاق',
-              note: 'از اتاق بیرونش می‌کنه',
-              danger: true,
-              onTap: () {
-                client.hostKick(p.id);
-                Navigator.pop(ctx);
-              },
-            ),
-          ]),
-        ),
-      ),
-    ),
-  );
-}
-
-class _SheetAction extends StatelessWidget {
-  const _SheetAction(
-      {required this.icon, required this.label, required this.note, required this.onTap, this.danger = false});
-  final String icon, label, note;
-  final VoidCallback onTap;
-  final bool danger;
-
-  @override
-  Widget build(BuildContext context) => InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(14),
-        child: Container(
-          width: double.infinity,
-          margin: const EdgeInsets.only(bottom: 8),
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-          decoration: BoxDecoration(
-              color: C.panel2,
-              borderRadius: BorderRadius.circular(14),
-              border: Border.all(color: C.line)),
-          child: Row(children: [
-            Text(icon, style: const TextStyle(fontSize: 16)),
-            const SizedBox(width: 10),
-            Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              Text(label,
-                  style: TextStyle(
-                      fontSize: 15,
-                      fontWeight: FontWeight.w600,
-                      color: danger ? C.anar : C.txt)),
-              Text(note, style: const TextStyle(fontSize: 12, color: C.txtDim)),
-            ]),
-          ]),
         ),
       );
 }

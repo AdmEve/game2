@@ -1,7 +1,7 @@
 name: naqashi
 description: نقاشی بکش — Persian party drawing game
 publish_to: 'none'
-version: 0.1.0+1
+version: 0.2.0+2
 
 environment:
   sdk: '>=3.3.0 <4.0.0'
@@ -11,6 +11,8 @@ dependencies:
     sdk: flutter
   web_socket_channel: ^3.0.1
   shared_preferences: ^2.3.2
+  audioplayers: ^6.8.1
+  share_plus: ^13.3.1
 
 dev_dependencies:
   flutter_test:
@@ -21,6 +23,8 @@ flutter:
   uses-material-design: true
   assets:
     - assets/fonts/
+    - assets/sfx/
+    - assets/words/
   fonts:
     - family: Vazirmatn
       fonts:
