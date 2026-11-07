@@ -11,9 +11,12 @@ solo and wants to make money from it.
 
 | Path | What | State |
 |---|---|---|
-| `lib/`, `pubspec.yaml`, `android/`, `assets/fonts/` | Flutter Android client (Flutter 3.47.9) | **Builds.** Analyzer clean. Not yet tried on a real phone. |
-| `server/` | Node + `ws` authoritative game server | **Tested.** `cd server && npm install && node test.js` → 45 passing. |
-| `test/` | `widget_test.dart`, `protocol_test.dart` (app client vs real server) | Passing. Protocol test needs `npm install` in `server/`. |
+| `lib/`, `pubspec.yaml`, `android/`, `assets/` | Flutter Android client (Flutter 3.47.9) | **Builds.** Analyzer clean. Not yet tried on a real phone. |
+| `server/` | Node + `ws` authoritative game server | **Tested.** `cd server && npm install && node test.js` → 76 passing. |
+| `assets/words/fa.json` | The word bank (496 words, 3 tiers, aliases) — read by the server *and* offline mode | Validated by tests. |
+| `test/` | widget tests, `party_rules_test.dart`, `protocol_test.dart` (app client vs real server) | Passing. Protocol test needs `npm install` in `server/`. |
+| `docs/QUALITY_PLAN.md` | The plan: 18 aspects of the game, done (✅) and next (⏭) | Current. Work from it. |
+| `tool/sfx/make_sfx.py`, `tool/icon/make_icon.py` | Generate `assets/sfx/*.wav` and the launcher icons/splash/store icon | Re-run after editing; output is committed. |
 | `tool/ui_e2e/` | Web build of the app driven by Playwright on simulated phones, screenshots every screen | Passing. Cloud sessions only (needs Playwright + Chromium). |
 | `prototype/naqashi.html` | Single-file web prototype (bots, no networking) | Working. Reference for UI feel and rules only. Not connected to the server. |
 | `.github/workflows/build.yml` | CI: tests, builds APKs, publishes release `android-latest` | **Green.** This is how APKs reach the owner. |
@@ -40,6 +43,22 @@ solo and wants to make money from it.
   `https://repo.maven.apache.org/maven2` to `https://maven-central.storage-download.googleapis.com/maven2/`
   (in `beforeSettings` and `allprojects`, repositories `configureEach`). No KVM, so no emulator:
   verify with `flutter test` and `tool/ui_e2e/`.
+
+## App layout
+
+```
+lib/main.dart            loads Settings, sounds; first-run screen or home
+lib/theme.dart           palette C, fa(), Pressable, GameButton, Panel, ChoiceChipX
+lib/config.dart          kVoiceBuilt
+lib/core/                settings (prefs + stats), progress (XP/levels/unlocks), sfx (sounds + haptics), words
+lib/draw/board.dart      Stroke, BoardModel (cached picture + live stroke), DrawingSurface, StrokeSender, PNG export
+lib/net/game_client.dart WebSocket client: protocol, reconnection, events stream for UI effects
+lib/party/party_rules.dart  offline party mode rules (pure, tested)
+lib/ui/                  home, sheets (onboarding/profile/settings/how-to/online), fx (confetti, toasts,
+                         count-up, doodles, logo), widgets (timer, mask, chat, player strip, tool tray, guess bar)
+lib/ui/online/           lobby, game screen (choose/wait/draw/guess/results/podium)
+lib/ui/party/            دورهمی setup and game screens
+```
 
 ## Commands
 
@@ -94,6 +113,6 @@ tool/ui_e2e/build_web.sh /tmp/web && node tool/ui_e2e/play.cjs /tmp/web /tmp/sho
 
 ## Known gaps (also tracked in HANDOFF.md)
 
-Not tried on a real phone yet; no audio transport; no billing/ads; no reconnection; no rate
-limiting (payload is capped); no "play again"; stroke sync only sends completed strokes; no
-undo/eraser in the Flutter drawing tools; ~30-word bank; temporary signing key per CI build.
+Not tried on a real phone yet; sounds never heard by a person; no voice transport; no billing/ads;
+no public server (online needs a LAN server); temporary signing key per CI build. Everything else
+planned is in `docs/QUALITY_PLAN.md` (⏭).

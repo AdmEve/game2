@@ -39,18 +39,8 @@ Step by step for Windows: `PLAYTEST.md`. In short:
 
 ## Project layout
 
-```
-lib/
-  main.dart              app entry; forces RTL for the whole tree
-  config.dart            feature switches (kVoiceBuilt)
-  theme.dart             palette, Vazirmatn text theme, shared buttons, fa() digits
-  persian.dart           normaliser + judge() — offline/practice only, see below
-  net/game_client.dart   WebSocket client; ChangeNotifier mirroring server state
-  ui/home_screen.dart    name/avatar, server address, room entry, lobby, host sheet
-  ui/game_screen.dart    choose word / draw / guess / results
-  ui/widgets.dart        canvas painter, timer ring, masked word, chat, push-to-talk
-assets/fonts/            Vazirmatn, bundled (see note)
-```
+See CLAUDE.md → "App layout". Assets: `assets/fonts/` (Vazirmatn, bundled — see note),
+`assets/sfx/` (generated sounds), `assets/words/fa.json` (word bank shared with the server).
 
 ### Why the font is bundled
 
