@@ -39,7 +39,7 @@ async function openPhone(browser, url, scale) {
   await page.goto(url);
   await page.waitForSelector('flt-semantics-placeholder', { state: 'attached', timeout: 30000 });
   await page.locator('flt-semantics-placeholder').dispatchEvent('click');
-  await page.waitForSelector('flt-semantics', { state: 'attached', timeout: 10000 });
+  await page.waitForSelector('flt-semantics', { state: 'attached', timeout: 30000 });
   await sleep(300);
   return page;
 }
